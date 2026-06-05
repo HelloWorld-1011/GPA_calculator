@@ -6,3 +6,7 @@
 
 # 用户/IDE 本地配置
 .vscode/
+
+# Qt Creator 本地配置
+.qtcreator/
+*.user
