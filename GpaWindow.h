@@ -56,7 +56,9 @@ private:
     void rebuildSemesterCombo();        // 刷新学期下拉框
 
     // 累加一个学期的统计；返回是否有有效课程，弹窗报错则返回 false
-    bool accumulate(const Semester &sem, double &totalCredit,
+    // totalCredit：已修总学分（含 P 通过的 P/NP 课程）
+    // gpaCredit  ：参与 GPA/加权均分计算的学分（仅百分制课程）
+    bool accumulate(const Semester &sem, double &totalCredit, double &gpaCredit,
                     double &weightedGpa, double &weightedScore,
                     bool showErrors);
 

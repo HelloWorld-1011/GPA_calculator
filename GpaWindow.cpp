@@ -80,7 +80,7 @@ GpaWindow::GpaWindow(QWidget *parent)
     // ---- 主布局 ----
     auto *mainLayout = new QVBoxLayout(this);
     mainLayout->addLayout(semLayout);
-    mainLayout->addWidget(new QLabel("输入每门课程的名称、学分与成绩（百分制）：", this));
+    mainLayout->addWidget(new QLabel("输入每门课程的名称、学分与成绩（百分制；P/NP 课程成绩填 P 或 NP）：", this));
     mainLayout->addWidget(table);
     mainLayout->addLayout(btnLayout);
     mainLayout->addWidget(calcBtn);
@@ -297,7 +297,7 @@ void GpaWindow::onSemesterChanged(int index)
 
 // ---------------- 计算 ----------------
 
-bool GpaWindow::accumulate(const Semester &sem, double &totalCredit,
+bool GpaWindow::accumulate(const Semester &sem, double &totalCredit, double &gpaCredit,
                            double &weightedGpa, double &weightedScore,
                            bool showErrors)
 {
@@ -306,10 +306,6 @@ bool GpaWindow::accumulate(const Semester &sem, double &totalCredit,
         if (c.credit.isEmpty() && c.score.isEmpty())
             continue;
 
-        bool okCredit = false, okScore = false;
-        double credit = c.credit.toDouble(&okCredit);
-        double score  = c.score.toDouble(&okScore);
-
         auto warn = [&](const QString &msg) {
             if (showErrors)
                 QMessageBox::warning(this, "输入错误",
@@ -317,11 +313,29 @@ bool GpaWindow::accumulate(const Semester &sem, double &totalCredit,
                         .arg(sem.name).arg(i + 1).arg(msg));
         };
 
-        if (!okCredit || !okScore) { warn("学分或成绩不是有效数字。"); return false; }
+        bool okCredit = false;
+        double credit = c.credit.toDouble(&okCredit);
+
+        // P/NP 课程：不计绩点与加权均分，仅 P（通过）计入已修学分
+        QString grade = c.score.trimmed().toUpper();
+        if (grade == "P" || grade == "NP") {
+            if (!okCredit)   { warn("学分不是有效数字。"); return false; }
+            if (credit <= 0) { warn("学分必须大于 0。");   return false; }
+            if (grade == "P")
+                totalCredit += credit;
+            continue;
+        }
+
+        // 百分制课程
+        bool okScore = false;
+        double score = c.score.toDouble(&okScore);
+
+        if (!okCredit || !okScore) { warn("学分或成绩不是有效数字（P/NP 课程请填写 P 或 NP）。"); return false; }
         if (credit <= 0)           { warn("学分必须大于 0。");        return false; }
         if (score < 0 || score > 100) { warn("成绩应在 0~100 之间。"); return false; }
 
         totalCredit   += credit;
+        gpaCredit     += credit;
         weightedGpa   += credit * scoreToGpa(score);
         weightedScore += credit * score;
     }
@@ -335,27 +349,35 @@ void GpaWindow::calculate()
         return;
 
     // 本学期
-    double curCredit = 0, curGpa = 0, curScore = 0;
-    if (!accumulate(semesters[currentIndex], curCredit, curGpa, curScore, true))
+    double curCredit = 0, curGpaCredit = 0, curGpa = 0, curScore = 0;
+    if (!accumulate(semesters[currentIndex], curCredit, curGpaCredit, curGpa, curScore, true))
         return;
 
-    if (curCredit > 0) {
-        currentResult->setText(QString("本学期    GPA：%1    加权均分：%2")
-            .arg(curGpa / curCredit, 0, 'f', 3)
-            .arg(curScore / curCredit, 0, 'f', 2));
+    if (curGpaCredit > 0) {
+        currentResult->setText(QString("本学期    GPA：%1    加权均分：%2    学分：%3")
+            .arg(curGpa / curGpaCredit, 0, 'f', 3)
+            .arg(curScore / curGpaCredit, 0, 'f', 2)
+            .arg(curCredit, 0, 'g', -1));
+    } else if (curCredit > 0) {
+        currentResult->setText(QString("本学期    学分：%1（均为 P 课程，不计 GPA）")
+            .arg(curCredit, 0, 'g', -1));
     } else {
         currentResult->setText("本学期    暂无有效课程");
     }
 
     // 总计（所有学期）
-    double allCredit = 0, allGpa = 0, allScore = 0;
+    double allCredit = 0, allGpaCredit = 0, allGpa = 0, allScore = 0;
     for (const Semester &s : semesters)
-        accumulate(s, allCredit, allGpa, allScore, false);
+        accumulate(s, allCredit, allGpaCredit, allGpa, allScore, false);
 
-    if (allCredit > 0) {
-        totalResult->setText(QString("总计      GPA：%1    加权均分：%2")
-            .arg(allGpa / allCredit, 0, 'f', 3)
-            .arg(allScore / allCredit, 0, 'f', 2));
+    if (allGpaCredit > 0) {
+        totalResult->setText(QString("总计      GPA：%1    加权均分：%2    总学分：%3")
+            .arg(allGpa / allGpaCredit, 0, 'f', 3)
+            .arg(allScore / allGpaCredit, 0, 'f', 2)
+            .arg(allCredit, 0, 'g', -1));
+    } else if (allCredit > 0) {
+        totalResult->setText(QString("总计      总学分：%1（均为 P 课程，不计 GPA）")
+            .arg(allCredit, 0, 'g', -1));
     } else {
         totalResult->setText("总计      暂无有效课程");
     }
