@@ -54,6 +54,7 @@ private:
     void commitTableToModel();          // 把表格内容写回当前学期数据
     void loadModelToTable();            // 把当前学期数据载入表格
     void rebuildSemesterCombo();        // 刷新学期下拉框
+    void updateGpaColumn();             // 根据成绩刷新每门课的绩点列
 
     // 累加一个学期的统计；返回是否有有效课程，弹窗报错则返回 false
     // totalCredit：已修总学分（含 P 通过的 P/NP 课程）

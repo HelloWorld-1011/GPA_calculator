@@ -47,11 +47,12 @@ GpaWindow::GpaWindow(QWidget *parent)
 
     // ---- 课程表格：课程名称 | 学分 | 成绩 ----
     table = new QTableWidget(this);
-    table->setColumnCount(3);
-    table->setHorizontalHeaderLabels({"课程名称", "学分", "成绩"});
+    table->setColumnCount(4);
+    table->setHorizontalHeaderLabels({"课程名称", "学分", "成绩", "绩点"});
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     table->verticalHeader()->setDefaultSectionSize(28);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
 
@@ -98,6 +99,13 @@ GpaWindow::GpaWindow(QWidget *parent)
     connect(delSemBtn,    &QPushButton::clicked, this, &GpaWindow::removeSemester);
     connect(semesterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &GpaWindow::onSemesterChanged);
+
+    // 编辑学分/成绩后即时刷新绩点列
+    connect(table, &QTableWidget::cellChanged, this, [this](int, int col) {
+        if (loadingTable || col == 3)   // 跳过载入过程及绩点列自身的写入
+            return;
+        updateGpaColumn();
+    });
 
     // ---- 载入已保存的数据 ----
     load();
@@ -148,12 +156,18 @@ void GpaWindow::loadModelToTable()
             table->setItem(row, 0, new QTableWidgetItem(c.name));
             table->setItem(row, 1, new QTableWidgetItem(c.credit));
             table->setItem(row, 2, new QTableWidgetItem(c.score));
+
+            auto *gpaItem = new QTableWidgetItem("");
+            gpaItem->setFlags(gpaItem->flags() & ~Qt::ItemIsEditable);
+            gpaItem->setTextAlignment(Qt::AlignCenter);
+            table->setItem(row, 3, gpaItem);
         }
     }
     // 至少留两行空白方便输入
     while (table->rowCount() < 2)
         addRow();
     loadingTable = false;
+    updateGpaColumn();
 }
 
 void GpaWindow::rebuildSemesterCombo()
@@ -175,6 +189,46 @@ void GpaWindow::addRow()
     table->setItem(row, 0, new QTableWidgetItem(""));
     table->setItem(row, 1, new QTableWidgetItem(""));
     table->setItem(row, 2, new QTableWidgetItem(""));
+
+    // 绩点列：只读，由成绩自动计算
+    auto *gpaItem = new QTableWidgetItem("");
+    gpaItem->setFlags(gpaItem->flags() & ~Qt::ItemIsEditable);
+    gpaItem->setTextAlignment(Qt::AlignCenter);
+    table->setItem(row, 3, gpaItem);
+}
+
+// 依据每行成绩填写绩点列（P/NP 及无效成绩显示 —）
+void GpaWindow::updateGpaColumn()
+{
+    QSignalBlocker blocker(table);   // 避免写入绩点列再次触发 cellChanged
+    for (int row = 0; row < table->rowCount(); ++row) {
+        QTableWidgetItem *gpaItem = table->item(row, 3);
+        if (!gpaItem) {
+            gpaItem = new QTableWidgetItem("");
+            gpaItem->setFlags(gpaItem->flags() & ~Qt::ItemIsEditable);
+            gpaItem->setTextAlignment(Qt::AlignCenter);
+            table->setItem(row, 3, gpaItem);
+        }
+
+        QTableWidgetItem *scoreItem = table->item(row, 2);
+        QString score = scoreItem ? scoreItem->text().trimmed() : QString();
+
+        QString text;
+        QString up = score.toUpper();
+        if (score.isEmpty()) {
+            text = "";
+        } else if (up == "P" || up == "NP") {
+            text = "—";
+        } else {
+            bool ok = false;
+            double s = score.toDouble(&ok);
+            if (ok && s >= 0 && s <= 100)
+                text = QString::number(scoreToGpa(s), 'f', 3);
+            else
+                text = "—";
+        }
+        gpaItem->setText(text);
+    }
 }
 
 void GpaWindow::removeSelectedRows()
@@ -345,6 +399,7 @@ bool GpaWindow::accumulate(const Semester &sem, double &totalCredit, double &gpa
 void GpaWindow::calculate()
 {
     commitTableToModel();
+    updateGpaColumn();
     if (semesters.isEmpty())
         return;
 
